@@ -9,68 +9,138 @@ hg_addr_t server_addr;
 margo_instance_id mid;
 
 static PyObject *
-rdma_push(PyObject *self, PyObject *args)
+rdma_set(PyObject *self, PyObject *args)
 {
     char *key, *value;
-    PyObject *data = PyDict_New();
 
-    if (!PyArg_ParseTuple(args, "(ss)", &key, &value))
+    if (!PyArg_ParseTuple(args, "(ss#)", &key, &value))
         return NULL;
 
-    push_in_t item;
+    rdma_in_t item;
 
     hg_string_t d[1] = { value };
     hg_bulk_t local_bulk;
-    hg_size_t sizes[1] = { sizeof(hg_string_t) };
+    hg_size_t sizes[1] = { strlen(d[0]) };
     void *ptrs = { (void*)d };
-    
-    hg_id_t push_rpc_id = MARGO_REGISTER(mid, "push", push_in_t, push_out_t, NULL);
+
+    hg_id_t set_rpc_id = MARGO_REGISTER(mid, "set", rdma_in_t, rdma_out_t, NULL);
     margo_bulk_create(mid, 1, ptrs, sizes, HG_BULK_READ_ONLY, &local_bulk);
 
     item.key = key;
+    item.size = sizes[0];
     item.bulk = local_bulk;
 
     double timeout = 5000;
     hg_handle_t h;
-    margo_create(mid, server_addr, push_rpc_id, &h);
+    margo_create(mid, server_addr, set_rpc_id, &h);
     margo_forward_timed(h, &item, timeout);
 
-    push_out_t resp;
+    rdma_out_t resp;
     margo_get_output(h, &resp);
-    margo_info(mid, "Got response: %d\n", resp.ret);
+    //margo_info(mid, "Got response: %d\n", resp.ret);
 
     margo_free_output(h, &resp);
     margo_destroy(h);
 
     margo_bulk_free(local_bulk);
 
-    PyObject *val = PyUnicode_FromString(value);
-    int result = PyDict_SetItemString(data, key, val);
-    return data;
+    PyObject *val = PyBytes_FromStringAndSize(d[0], sizeof(d[0]));
+    return val;
 }
 
 static PyObject *
+rdma_get(PyObject *self, PyObject *args)
+{
+    const int32_t MAX_FILE_SIZE = sizeof(hg_string_t) * 1000;
+    char *key;
+    //PyObject *data = PyDict_New();
+
+    if (!PyArg_ParseTuple(args, "s", &key))
+        return NULL;
+
+    rdma_in_t item;
+
+    hg_string_t d[1] = { calloc(1, MAX_FILE_SIZE) };
+    hg_bulk_t local_bulk;
+    hg_size_t sizes[1] = { MAX_FILE_SIZE };
+    void *ptrs = { (void*)d };
+    
+    hg_id_t get_rpc_id = MARGO_REGISTER(mid, "get", rdma_in_t, rdma_out_t, NULL);
+    margo_bulk_create(mid, 1, ptrs, sizes, HG_BULK_WRITE_ONLY, &local_bulk);
+
+    item.key = key;
+    item.size = MAX_FILE_SIZE;
+    item.bulk = local_bulk;
+
+    double timeout = 5000;
+    hg_handle_t h;
+    margo_create(mid, server_addr, get_rpc_id, &h);
+    margo_forward_timed(h, &item, timeout);
+
+    rdma_out_t resp;
+    margo_get_output(h, &resp);
+    //margo_info(mid, "Got response: %d %s %d\n", resp.ret, d[0], sizeof(d));
+
+    margo_free_output(h, &resp);
+    margo_destroy(h);
+
+    margo_bulk_free(local_bulk);
+
+    PyObject *val = PyBytes_FromString(d[0]);
+    //PyDict_SetItemString(data, key, val);
+    return val;
+}
+
+static PyObject*
 rdma_connect(PyObject *self, PyObject *args)
 {
+
+    if (mid != NULL)
+    {
+        //hg_return_t ret;
+
+        //ret = 
+        margo_addr_free(mid, server_addr);
+        margo_finalize(mid);
+    }
+
     char *addr;
     if (!PyArg_ParseTuple(args, "s", &addr))
         return NULL;
 
+    hg_return_t ret;
     // verify that all options are correct
     mid = margo_init("tcp", MARGO_CLIENT_MODE, 0, 0);
     // let user provide log level
     margo_set_log_level(mid, MARGO_LOG_INFO);
-    margo_addr_lookup(mid, addr, &server_addr);
+    ret = margo_addr_lookup(mid, addr, &server_addr);
 
-    return PyLong_FromLong(0);
+    return PyLong_FromLong(ret);
+
+}
+
+
+static PyObject*
+rdma_close(PyObject *self, PyObject *args)
+{
+
+    hg_return_t ret;
+
+    ret = margo_addr_free(mid, server_addr);
+    margo_finalize(mid);
+    return PyLong_FromLong(ret);
 
 }
 
 static PyMethodDef rdmaMethods[] = {
-    {"push",  rdma_push, METH_VARARGS,
+    {"set",  rdma_set, METH_VARARGS,
      "Transfer data to server"},
+    {"get",  rdma_get, METH_VARARGS,
+     "Receive data from server"},
     {"connect", rdma_connect, METH_VARARGS,
      "Connect to server"},
+    {"close", rdma_close, METH_VARARGS,
+     "Terminate connection to server"},
     {NULL, NULL, 0, NULL}        /* Sentinel */
 };
 

@@ -5,10 +5,11 @@
 #include <mercury_macros.h>
 #include <mercury_proc_string.h>
 
-MERCURY_GEN_PROC(push_in_t,
+MERCURY_GEN_PROC(rdma_in_t,
         ((hg_string_t)(key))\
+        ((int32_t)(size))\
         ((hg_bulk_t)(bulk)))
 
-MERCURY_GEN_PROC(push_out_t, ((int32_t)(ret)))
+MERCURY_GEN_PROC(rdma_out_t, ((int32_t)(ret)))
 
 #endif
