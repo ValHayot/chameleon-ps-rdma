@@ -5,6 +5,7 @@
 #include <margo.h>
 #include <mercury.h>
 #include <mercury_macros.h>
+#include <hiredis.h>
 #include "types.h"
 
 
@@ -12,9 +13,11 @@
 // Doesn't actually work properly
 // need to find a better alternative to cleaning up on the server side
 margo_instance_id cur_mid;
+redisContext *c;
 
 void intHandler(int intrpt)
 {
+    redisFree(c);
     margo_finalize(cur_mid);
 }
 
@@ -27,7 +30,26 @@ DECLARE_MARGO_RPC_HANDLER(get)
 int main(int argc, char** argv)
 {
     signal(SIGINT, intHandler);
+    int redis_port;
 
+    if (argv[1] != NULL)
+    {
+        redis_port = atoi(argv[1]);
+    }
+
+    // create redis context
+    c = redisConnect("127.0.0.1", redis_port);
+    if (c == NULL || c->err) {
+        if (c) {
+            printf("Error: %s port id: %d\n", c->errstr, redis_port);
+            // handle error
+            exit(0);
+        } else {
+            printf("Can't allocate redis context\n");
+        }
+    }
+
+    // initialize margo instance
     margo_instance_id mid = margo_init("tcp", MARGO_SERVER_MODE, 0, 0);
     assert(mid);
     margo_set_log_level(mid, MARGO_LOG_INFO);
@@ -60,6 +82,8 @@ static void set(hg_handle_t h)
     hg_bulk_t local_bulk;
     hg_string_t* val;
 
+    redisReply *reply;
+
     margo_instance_id mid = margo_hg_handle_get_instance(h);
 
     const struct hg_info* info = margo_get_info(h);
@@ -85,19 +109,9 @@ static void set(hg_handle_t h)
 
         //margo_info(mid, "obtained key %s and value %s\n", in.key, val);
 
-        // write data to file
-        FILE *fptr;
-
-        if ((fptr = fopen(in.key, "wb+")) == NULL)
-        {
-            margo_error(mid, "could not open file %s for writing\n", in.key);
-            out.ret = -1;
-        }
-        else
-        {
-            fwrite(val, in.size, 1, fptr);
-            fclose(fptr);
-        }
+        // store key-value pair in redis
+        reply = redisCommand(c, "SET key:%s %b", in.key, val, (size_t)in.size);
+        margo_debug(mid, "SET (binary API): %s\n", reply->str);
     }
    
 
@@ -114,6 +128,7 @@ static void set(hg_handle_t h)
     assert(ret == HG_SUCCESS);
 
     free(val);
+    freeReplyObject(reply);
 }
 
 static void get(hg_handle_t h)
@@ -129,6 +144,8 @@ static void get(hg_handle_t h)
     FILE *fptr;
     size_t read_size;
 
+    redisReply *reply;
+
     margo_instance_id mid = margo_hg_handle_get_instance(h);
 
     const struct hg_info* info = margo_get_info(h);
@@ -138,46 +155,23 @@ static void get(hg_handle_t h)
     assert(ret == HG_SUCCESS);
 
 
-    // read data from file
+    // get data from redis
+    reply = redisCommand(c, "GET key:%s", in.key);
 
-    if ((fptr = fopen(in.key, "r")) == NULL)
-    {
-        margo_error(mid, "could not open file %s for reading\n", in.key);
-        out.ret = -1;
-    }
-    else
-    {
-        // get length of file
-        fseek(fptr, 0, SEEK_END);
-        long fsize = ftell(fptr);
-        fseek(fptr, 0, SEEK_SET);
+    margo_debug(mid, "GET %s\n", in.key);
 
-        val = malloc(fsize + 1);
+    val = reply->str;
+    buf_size = strlen(reply->str);
 
-        read_size = fread(val, fsize, 1, fptr);
+    ret = margo_bulk_create(mid, 1, (void*)&val, &buf_size,
+	    HG_BULK_READ_ONLY, &local_bulk);
+    assert(ret == HG_SUCCESS);
 
-        if (read_size > 0)
-        {
-            val[fsize] = 0;
-            fclose(fptr);
-            buf_size = fsize;
+    ret = margo_bulk_transfer(mid, HG_BULK_PUSH, client_addr,
+	    in.bulk, 0, local_bulk, 0, buf_size);
+    assert(ret == HG_SUCCESS);
 
-            ret = margo_bulk_create(mid, 1, (void*)&val, &buf_size,
-                    HG_BULK_READ_ONLY, &local_bulk);
-            assert(ret == HG_SUCCESS);
-
-            ret = margo_bulk_transfer(mid, HG_BULK_PUSH, client_addr,
-                    in.bulk, 0, local_bulk, 0, buf_size);
-            assert(ret == HG_SUCCESS);
-
-            out.ret = 0;
-        }
-        else 
-        {
-           // read error
-           out.ret = -1;
-        }
-    }
+    out.ret = 0;
 
     ret = margo_respond(h, &out);
     assert(ret == HG_SUCCESS);
@@ -190,6 +184,8 @@ static void get(hg_handle_t h)
 
     ret = margo_destroy(h);
     assert(ret == HG_SUCCESS);
+
+    freeReplyObject(reply);
 
 }
 
