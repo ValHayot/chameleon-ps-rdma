@@ -22,3 +22,5 @@ spack load hiredis
 
 pkg-config --libs margo
 pkg-config --libs hiredis" >> ~/.bashrc
+
+source ~/.bashrc

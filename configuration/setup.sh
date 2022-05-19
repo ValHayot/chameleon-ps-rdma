@@ -41,4 +41,3 @@ sudo yum install centos-release-scl -y
 sudo yum clean all -y
 sudo yum install devtoolset-11-* -y
 scl enable devtoolset-11 bash
-
