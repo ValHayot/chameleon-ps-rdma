@@ -1,13 +1,13 @@
 from distutils.core import setup, Extension
 
 module1 = Extension('rdma_transfer',
-                    include_dirs = ['/home/cc/spack/opt/spack/linux-centos7-haswell/gcc-11.2.1/mochi-margo-0.9.8-drfshmjljq7fq7w2q6dxpllw5uuhcczs/include',
-                                    '/home/cc/spack/opt/spack/linux-centos7-haswell/gcc-11.2.1/mercury-2.1.0-upd2del7j4zmurslpzm2kglenxqh2mcs/include/',
-                                    '/home/cc/spack/opt/spack/linux-centos7-haswell/gcc-11.2.1/argobots-1.1-hpvibv22u2xx5wypx7ze3wnq7axtxb3q/include/'],
-                    library_dirs = ['/home/cc/spack/opt/spack/linux-centos7-haswell/gcc-11.2.1/mochi-margo-0.9.8-drfshmjljq7fq7w2q6dxpllw5uuhcczs/lib',
-                                 '/home/cc/spack/opt/spack/linux-centos7-haswell/gcc-11.2.1/mercury-2.1.0-upd2del7j4zmurslpzm2kglenxqh2mcs/lib',
-                                 '/home/cc/spack/opt/spack/linux-centos7-haswell/gcc-11.2.1/json-c-0.15-yc5c7wowlhb3gr2ipmfok7mj5y7ityct/lib64',
-                                 '/home/cc/spack/opt/spack/linux-centos7-haswell/gcc-11.2.1/argobots-1.1-hpvibv22u2xx5wypx7ze3wnq7axtxb3q/lib'],
+                    include_dirs = ['/home/cc/spack/opt/spack/linux-centos7-haswell/gcc-11.2.1/mochi-margo-0.9.9-obklmzu7bpepcdeagouyzvwxrederno6/include',
+                                    '/home/cc/spack/opt/spack/linux-centos7-haswell/gcc-11.2.1/mercury-2.1.0-uiizvaeo6pcnnd22gbelrctih3jsnhgo/include/',
+                                    '/home/cc/spack/opt/spack/linux-centos7-haswell/gcc-11.2.1/argobots-1.1-6uc7mwbses3i3o7u2fnasud26jzgdd4j/include/'],
+                    library_dirs = ['/home/cc/spack/opt/spack/linux-centos7-haswell/gcc-11.2.1/mochi-margo-0.9.9-obklmzu7bpepcdeagouyzvwxrederno6//lib',
+                                 '/home/cc/spack/opt/spack/linux-centos7-haswell/gcc-11.2.1/mercury-2.1.0-uiizvaeo6pcnnd22gbelrctih3jsnhgo/lib',
+                                 '/home/cc/spack/opt/spack/linux-centos7-haswell/gcc-11.2.1/json-c-0.15-zfzvec36zsbsyuhcgcdtce53f7qvvp6y/lib64',
+                                 '/home/cc/spack/opt/spack/linux-centos7-haswell/gcc-11.2.1/argobots-1.1-6uc7mwbses3i3o7u2fnasud26jzgdd4j/lib'],
                     libraries = [ 'margo', 'mercury', 'abt' ],
                     sources = ['rdma_transfer.c'])
 

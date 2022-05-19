@@ -6,7 +6,7 @@ import time
 import struct # need to handle this in rdma_transfer.c instead
 from typing import Any
 
-import rdma_transfer as rt
+from rdma_interface import RDMA
 
 import proxystore as ps
 from proxystore.store.remote import RemoteFactory
@@ -73,7 +73,7 @@ class RDMAStore(RemoteStore):
                 :class:`RemoteStore <proxystore.store.remote.RemoteStore>`.
         """
         self.addr = addr
-        rt.connect(self.addr)
+        self.rdma  = RDMA(self.addr)
         super().__init__(name, **kwargs)
 
     def _kwargs(
@@ -126,7 +126,7 @@ class RDMAStore(RemoteStore):
         Returns:
             serialized object or `None` if it does not exist.
         """
-        return rt.get(key)
+        return self.rdma.get(key)
 
     def get_timestamp(self, key: str) -> float:
         """Get timestamp of most recent object version in the store.
@@ -142,7 +142,7 @@ class RDMAStore(RemoteStore):
             KeyError:
                 if `key` does not exist in store.
         """
-        value = rt.get(key + '_timestamp')
+        value = self.rdma.get(key + '_timestamp')
         if value is None:
             raise KeyError(f"Key='{key}' does not exist on the remote server")
         return struct.unpack("<d", value)
@@ -188,5 +188,5 @@ class RDMAStore(RemoteStore):
         if not isinstance(data, bytes):
             raise TypeError(f'data must be of type bytes. Found {type(data)}')
         # We store the creation time for the key as a separate file.
-        rt.set((key + '_timestamp', struct.pack('<d', time.time())))
-        rt.set((key, data))
+        self.rdma.set(key + '_timestamp', struct.pack('<d', time.time()))
+        self.rdma.set(key, data)

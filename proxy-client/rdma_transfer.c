@@ -51,7 +51,7 @@ rdma_set(PyObject *self, PyObject *args)
 static PyObject *
 rdma_get(PyObject *self, PyObject *args)
 {
-    const int32_t MAX_FILE_SIZE = sizeof(hg_string_t) * 1000;
+    const int32_t MAX_FILE_SIZE = sizeof(hg_string_t) * 100000000000;
     char *key;
     //PyObject *data = PyDict_New();
 
@@ -100,17 +100,19 @@ rdma_connect(PyObject *self, PyObject *args)
         //hg_return_t ret;
 
         //ret = 
-        margo_addr_free(mid, server_addr);
-        margo_finalize(mid);
+        return PyLong_FromLong(0);
+        //margo_addr_free(mid, server_addr);
+        //margo_finalize(mid);
     }
 
     char *addr;
     if (!PyArg_ParseTuple(args, "s", &addr))
         return NULL;
 
+
     hg_return_t ret;
     // verify that all options are correct
-    mid = margo_init("tcp", MARGO_CLIENT_MODE, 0, 0);
+    mid = margo_init("tcp", MARGO_CLIENT_MODE, 1, 0);
     // let user provide log level
     margo_set_log_level(mid, MARGO_LOG_INFO);
     ret = margo_addr_lookup(mid, addr, &server_addr);
@@ -121,7 +123,7 @@ rdma_connect(PyObject *self, PyObject *args)
 
 
 static PyObject*
-rdma_close(PyObject *self, PyObject *args)
+rdma_disconnect(PyObject *self, PyObject *args)
 {
 
     hg_return_t ret;
@@ -139,7 +141,7 @@ static PyMethodDef rdmaMethods[] = {
      "Receive data from server"},
     {"connect", rdma_connect, METH_VARARGS,
      "Connect to server"},
-    {"close", rdma_close, METH_VARARGS,
+    {"disconnect", rdma_close, METH_VARARGS,
      "Terminate connection to server"},
     {NULL, NULL, 0, NULL}        /* Sentinel */
 };
