@@ -30,6 +30,11 @@ fi
 sudo ifdown ib0
 sudo ifup ib0
 
+# install spack
+git clone -c feature.manyFiles=true https://github.com/spack/spack.git
+# install mochi/margo
+git clone https://github.com/mochi-hpc/mochi-spack-packages.git
+
 # upgrade GCC
 sudo yum group install "Development Tools" -y
 sudo yum install centos-release-scl -y
@@ -37,7 +42,3 @@ sudo yum clean all -y
 sudo yum install devtoolset-11-* -y
 scl enable devtoolset-11 bash
 
-# install spack
-git clone -c feature.manyFiles=true https://github.com/spack/spack.git
-# install mochi/margo
-git clone https://github.com/mochi-hpc/mochi-spack-packages.git
