@@ -12,57 +12,98 @@ import proxystore as ps
 from time import perf_counter_ns
 
 
-def bench(size, logfile, cmd):
-    def bench_decorator(func):
-        @wraps(func)
-        def wrapped_function(*args, **kwargs):
-            start = perf_counter_ns()
+class Benchmark:
+    def __init__(self, connect, *, cmd, logfile, **kwargs):
+        self.cmd = cmd
+        self.logfile = logfile
+        self.proxies = {}
+
+        if logfile is not None:
+            # overwrite logfile and write header
+            with open(logfile, "w+") as f:
+                f.write("store,function,size,start,end,duration\n")
+
+        self.store = self.bench(0)(connect)(cmd, **kwargs)
+
+    def run(self):
+        OKGREEN = "\033[92m"
+        OKENDC = "\033[0m"
+
+        def print_status(func, text):
+            print(text, end="", flush=True)
             func()
-            end = perf_counter_ns()
-            duration = (end - start) * 10**-9
-            print(f"{cmd=}, {func.__name__=}, {size=}, {start=}, {end=}, {duration=}")
-            # Open the logfile and append
-            with open(logfile, 'a+') as f:
-                f.write(f"{cmd=},{func.__name__},{size},{start},{end},{duration=}\n")
-            return func(*args, **kwargs)
-        return wrapped_function
-    return bench_decorator
+            print(f"{OKGREEN}done{OKENDC}")
 
+        print_status(self.write, "Running write benchmarks...")
+        print_status(self.read, "Running cached read benchmarks...")
 
-def run(store, logfile, cmd):
-    min_exp = 10  # approx 1 KB
-    max_exp = 31  # approx 1 GB
+        # attempting to remove from caches
+        self.cache_evict()
 
-    proxies = {}
+        print_status(self.read, "Running read benchmarks...")
 
-    print("Running write benchmarks...")
-    for i in ( 2 ** i for i in range(min_exp, max_exp, 5) ):
-        data = "a"*i
+    def write(self):
+        min_exp = 10  # approx 1 KB
+        max_exp = 29  # 512MB is the redis string limit, but python strings are never exactly a certain number of bytes
 
-        b = sys.getsizeof(data)
-        @bench(size=b, logfile=logfile, cmd=cmd)
-        def store_data():
-             y = store.proxy(data)
-             return y
+        for i in (2**i for i in range(min_exp, max_exp)):
+            data = "a" * i
 
-        y = store_data()
-        proxies[y] = b
+            b = sys.getsizeof(data)
 
-    # attempting to remove from caches
-    for k, v in proxies.items():
-        store._cache.evict(k)
+            @self.bench(size=b)
+            def store_data():
+                y = self.store.proxy(data)
+                return y
 
-    gc.collect()
+            y = store_data()
+            self.proxies[y] = b
 
-    print("Running read benchmarks...")
-    for k, v in proxies.items():
+    def read(self, cached=False):
+        task = None
+        if cached:
+            task = "cached"
+        for k, v in self.proxies.items():
 
-        @bench(size=v, logfile=logfile, cmd=cmd)
-        def load_proxy():
-             z = "".join([c for c in k])
-             return z
-     
-        z = load_proxy()
+            @self.bench(size=v, task_suffix=task)
+            def load_proxy():
+                z = "".join([c for c in k])
+                return z
+
+            z = load_proxy()
+
+    def cache_evict(self):
+        for k, v in self.proxies.items():
+            self.store._cache.evict(k)
+
+        gc.collect()
+
+    def bench(self, size, task_suffix=""):
+        cmd = self.cmd
+
+        def bench_decorator(func):
+            @wraps(func)
+            def wrapped_function(*args, **kwargs):
+                func_name = f"{func.__name__}_{task_suffix}"
+
+                start = perf_counter_ns()
+                func(*args, **kwargs)
+                end = perf_counter_ns()
+                duration = (end - start) * 10**-9
+
+                # Open the logfile and append
+                if self.logfile is not None:
+                    with open(self.logfile, "a+") as f:
+                        f.write(f"{cmd},{func_name},{size},{start},{end},{duration}\n")
+                else:
+                    print(
+                        f"{self.cmd=}, {func_name=}, {size=}, {start=}, {end=}, {duration=}"
+                    )
+                return func(*args, **kwargs)
+
+            return wrapped_function
+
+        return bench_decorator
 
 
 @click.group()
@@ -77,8 +118,9 @@ def cli(ctx, logfile):
 @click.pass_context
 @click.argument("addr")
 def mochi(ctx, addr):
-    sys.path.insert(0,'../proxy-client')
+    sys.path.insert(0, "../proxy-client")
     import rdma as proxy_rdma
+
     store = proxy_rdma.RDMAStore(name="rdma", addr=addr)
     run(store, logfile=ctx.obj["log"], cmd="mochi")
 
@@ -89,9 +131,15 @@ def mochi(ctx, addr):
 @click.argument("port")
 def redis(ctx, host, port):
 
-    store = ps.store.init_store("redis", name="redis", hostname=host, port=port)
-
-    run(store, ctx.obj["log"], cmd="redis")
+    store = Benchmark(
+        ps.store.init_store,
+        cmd="redis",
+        name="redis",
+        hostname=host,
+        port=port,
+        logfile=ctx.obj["log"],
+    )
+    store.run()
 
 
 if __name__ == "__main__":
