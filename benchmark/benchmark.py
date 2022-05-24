@@ -3,6 +3,7 @@ import sys
 import gc
 import random
 from functools import wraps
+from typing import Optional
 
 # import rdma as proxy_rdma
 import click
@@ -13,12 +14,22 @@ from time import perf_counter_ns
 
 
 class Benchmark:
-    def __init__(self, connect, *, cmd, logfile, **kwargs):
+    def __init__(
+        self,
+        connect,
+        *,
+        cmd: str,
+        logfile: Optional[None],
+        reps: int,
+        overwrite: bool = True,
+        **kwargs,
+    ):
         self.cmd = cmd
         self.logfile = logfile
+        self.reps = reps
         self.proxies = {}
 
-        if logfile is not None:
+        if logfile is not None and overwrite:
             # overwrite logfile and write header
             with open(logfile, "w+") as f:
                 f.write("store,function,size,start,end,duration\n")
@@ -28,19 +39,34 @@ class Benchmark:
     def run(self):
         OKGREEN = "\033[92m"
         OKENDC = "\033[0m"
+        BOLD = "\033[1m"
 
-        def print_status(func, text):
-            print(text, end="", flush=True)
-            func()
+        def print_status(func, text, *args):
+            if self.logfile is None:
+                end = "\n"
+            else:
+                end = ""
+
+            print(text, end=end, flush=True)
+
+            for i in range(self.reps):
+                if self.logfile is not None:
+                    print(".", end=end, flush=True)
+                else:
+                    print("\n\n")
+                func(*args)
+
             print(f"{OKGREEN}done{OKENDC}")
 
-        print_status(self.write, "Running write benchmarks...")
-        print_status(self.read, "Running cached read benchmarks...")
+        print_status(self.write, f"Running {BOLD}write{OKENDC} benchmarks")
 
-        # attempting to remove from caches
-        self.cache_evict()
+        if self.cmd != "local":
+            print_status(self.read, f"Running {BOLD}cached read{OKENDC} benchmarks", True)
 
-        print_status(self.read, "Running read benchmarks...")
+            # attempting to remove from caches
+            self.cache_evict()
+
+        print_status(self.read, f"Running {BOLD}read{OKENDC} benchmarks")
 
     def write(self):
         min_exp = 10  # approx 1 KB
@@ -60,14 +86,14 @@ class Benchmark:
             self.proxies[y] = b
 
     def read(self, cached=False):
-        task = None
+        suffix = ""
         if cached:
-            task = "cached"
+            suffix = "_cached"
         for k, v in self.proxies.items():
 
-            @self.bench(size=v, task_suffix=task)
+            @self.bench(size=v, task_suffix=suffix)
             def load_proxy():
-                z = "".join([c for c in k])
+                z = len(k)
                 return z
 
             z = load_proxy()
@@ -84,7 +110,7 @@ class Benchmark:
         def bench_decorator(func):
             @wraps(func)
             def wrapped_function(*args, **kwargs):
-                func_name = f"{func.__name__}_{task_suffix}"
+                func_name = f"{func.__name__}{task_suffix}"
 
                 start = perf_counter_ns()
                 func(*args, **kwargs)
@@ -107,11 +133,15 @@ class Benchmark:
 
 
 @click.group()
-@click.option("--logfile", type=str, default="out.log")
+@click.option("--logfile", type=str, default=None)
+@click.option("--reps", type=int, default=1)
+@click.option("--overwrite", is_flag=True)
 @click.pass_context
-def cli(ctx, logfile):
+def cli(ctx, logfile, reps, overwrite):
     ctx.ensure_object(dict)
-    ctx.obj["log"] = logfile
+    ctx.obj["logfile"] = logfile
+    ctx.obj["reps"] = reps
+    ctx.obj["overwrite"] = overwrite
 
 
 @cli.command()
@@ -121,8 +151,8 @@ def mochi(ctx, addr):
     sys.path.insert(0, "../proxy-client")
     import rdma as proxy_rdma
 
-    store = proxy_rdma.RDMAStore(name="rdma", addr=addr)
-    run(store, logfile=ctx.obj["log"], cmd="mochi")
+    b = Benchmark(proxy_rdma.RDMAStore, name="rdma", addr=addr, logfile=ctx.obj["log"])
+    b.run()
 
 
 @cli.command()
@@ -131,15 +161,60 @@ def mochi(ctx, addr):
 @click.argument("port")
 def redis(ctx, host, port):
 
-    store = Benchmark(
+    b = Benchmark(
         ps.store.init_store,
         cmd="redis",
         name="redis",
         hostname=host,
         port=port,
-        logfile=ctx.obj["log"],
+        **ctx.obj
     )
-    store.run()
+
+    b.run()
+
+@cli.command()
+@click.pass_context
+def local(ctx):
+
+    b = Benchmark(
+        ps.store.init_store,
+        cmd="local",
+        name="local",
+        **ctx.obj
+    )
+    b.run()
+
+
+@cli.command()
+@click.pass_context
+@click.argument("store_dir")
+def file(ctx, store_dir):
+
+    b = Benchmark(
+        ps.store.init_store,
+        cmd="file",
+        name="file",
+        store_dir=store_dir,
+        **ctx.obj
+    )
+    b.run()
+
+
+@cli.command()
+@click.pass_context
+@click.argument("endpoint_json")
+def globus(ctx, endpoint_json):
+    endpoints = ps.store.globus.GlobusEndpoints.from_json(endpoint_json)
+    print(endpoints)
+
+    b = Benchmark(
+        ps.store.init_store,
+        cmd="globus",
+        name="globus",
+        endpoints=endpoints,
+        **ctx.obj
+    )
+    b.run()
 
 
 if __name__ == "__main__":
