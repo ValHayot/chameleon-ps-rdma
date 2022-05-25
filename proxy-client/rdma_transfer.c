@@ -13,7 +13,7 @@ rdma_set(PyObject *self, PyObject *args)
 {
     char *key, *value;
 
-    if (!PyArg_ParseTuple(args, "(ss#)", &key, &value))
+    if (!PyArg_ParseTuple(args, "ss*", &key, &value))
         return NULL;
 
     rdma_in_t item;
@@ -51,25 +51,25 @@ rdma_set(PyObject *self, PyObject *args)
 static PyObject *
 rdma_get(PyObject *self, PyObject *args)
 {
-    const int32_t MAX_FILE_SIZE = sizeof(hg_string_t) * 100000000000;
     char *key;
+    size_t size;
     //PyObject *data = PyDict_New();
 
-    if (!PyArg_ParseTuple(args, "s", &key))
+    if (!PyArg_ParseTuple(args, "sn", &key, &size))
         return NULL;
 
     rdma_in_t item;
 
-    hg_string_t d[1] = { calloc(1, MAX_FILE_SIZE) };
+    hg_string_t d[1] = { calloc(1, size) };
     hg_bulk_t local_bulk;
-    hg_size_t sizes[1] = { MAX_FILE_SIZE };
+    hg_size_t sizes[1] = { size };
     void *ptrs = { (void*)d };
     
     hg_id_t get_rpc_id = MARGO_REGISTER(mid, "get", rdma_in_t, rdma_out_t, NULL);
     margo_bulk_create(mid, 1, ptrs, sizes, HG_BULK_WRITE_ONLY, &local_bulk);
 
     item.key = key;
-    item.size = MAX_FILE_SIZE;
+    item.size = size;
     item.bulk = local_bulk;
 
     double timeout = 5000;
@@ -123,7 +123,7 @@ rdma_connect(PyObject *self, PyObject *args)
 
 
 static PyObject*
-rdma_disconnect(PyObject *self, PyObject *args)
+rdma_close(PyObject *self, PyObject *args)
 {
 
     hg_return_t ret;

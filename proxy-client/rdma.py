@@ -142,9 +142,11 @@ class RDMAStore(RemoteStore):
             KeyError:
                 if `key` does not exist in store.
         """
-        value = self.rdma.get(key + '_timestamp')
+        value = self.rdma.get(key + '_timestamp', 8)
+
         if value is None:
             raise KeyError(f"Key='{key}' does not exist on the remote server")
+
         return struct.unpack("<d", value)
 
     def proxy(  # type: ignore[override]

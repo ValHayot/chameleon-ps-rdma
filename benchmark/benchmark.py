@@ -2,6 +2,7 @@
 import sys
 import gc
 import random
+from os import path as op, system
 from functools import wraps
 from typing import Optional
 
@@ -19,22 +20,25 @@ class Benchmark:
         connect,
         *,
         cmd: str,
+        name: str,
         logfile: Optional[None],
-        reps: int,
         overwrite: bool = True,
         **kwargs,
     ):
-        self.cmd = cmd
+        self.cmd = name
         self.logfile = logfile
-        self.reps = reps
         self.proxies = {}
 
-        if logfile is not None and overwrite:
+        if logfile is not None and (overwrite or not op.exists(logfile)):
             # overwrite logfile and write header
             with open(logfile, "w+") as f:
                 f.write("store,function,size,start,end,duration\n")
+        
+        if cmd == "rdma":
+            self.store = self.bench(0)(connect)(name, **kwargs)
 
-        self.store = self.bench(0)(connect)(cmd, **kwargs)
+        else:
+            self.store = self.bench(0)(connect)(cmd, name, **kwargs)
 
     def run(self):
         OKGREEN = "\033[92m"
@@ -49,24 +53,19 @@ class Benchmark:
 
             print(text, end=end, flush=True)
 
-            for i in range(self.reps):
-                if self.logfile is not None:
-                    print(".", end=end, flush=True)
-                else:
-                    print("\n\n")
-                func(*args)
+            func(*args)
 
             print(f"{OKGREEN}done{OKENDC}")
 
-        print_status(self.write, f"Running {BOLD}write{OKENDC} benchmarks")
+        print_status(self.write, f"Running {BOLD}write{OKENDC} benchmarks...")
 
         if self.cmd != "local":
-            print_status(self.read, f"Running {BOLD}cached read{OKENDC} benchmarks", True)
+            print_status(self.read, f"Running {BOLD}cached read{OKENDC} benchmarks...", True)
 
             # attempting to remove from caches
             self.cache_evict()
 
-        print_status(self.read, f"Running {BOLD}read{OKENDC} benchmarks")
+        print_status(self.read, f"Running {BOLD}read{OKENDC} benchmarks...")
 
     def write(self):
         min_exp = 10  # approx 1 KB
@@ -104,6 +103,12 @@ class Benchmark:
 
         gc.collect()
 
+        try:
+            #drop page cache
+            system('sudo sh -c "sync; echo 3 > /proc/sys/vm/drop_caches"')
+        except Exception as e:
+            print(f"ERROR: unable to drop caches due to -- {str(e)}")
+
     def bench(self, size, task_suffix=""):
         cmd = self.cmd
 
@@ -132,6 +137,14 @@ class Benchmark:
         return bench_decorator
 
 
+def run_reps(func, **kwargs):
+    reps = kwargs.pop("reps")
+    for i in range(reps):
+        print(f"***Repetition {i}***")
+        b = Benchmark(func, **kwargs)
+        b.run()
+
+
 @click.group()
 @click.option("--logfile", type=str, default=None)
 @click.option("--reps", type=int, default=1)
@@ -151,8 +164,13 @@ def mochi(ctx, addr):
     sys.path.insert(0, "../proxy-client")
     import rdma as proxy_rdma
 
-    b = Benchmark(proxy_rdma.RDMAStore, name="rdma", addr=addr, logfile=ctx.obj["log"])
-    b.run()
+    run_reps(
+        proxy_rdma.RDMAStore,
+        cmd="rdma",
+        name="rdma",
+        addr=addr,
+        **ctx.obj
+    )
 
 
 @cli.command()
@@ -161,7 +179,7 @@ def mochi(ctx, addr):
 @click.argument("port")
 def redis(ctx, host, port):
 
-    b = Benchmark(
+    run_reps(
         ps.store.init_store,
         cmd="redis",
         name="redis",
@@ -170,19 +188,33 @@ def redis(ctx, host, port):
         **ctx.obj
     )
 
-    b.run()
+
+@cli.command()
+@click.pass_context
+@click.argument("host")
+@click.argument("port")
+def keydb(ctx, host, port):
+
+    run_reps(
+        ps.store.init_store,
+        cmd="redis",
+        name="keydb",
+        hostname=host,
+        port=port,
+        **ctx.obj
+    )
+
 
 @cli.command()
 @click.pass_context
 def local(ctx):
 
-    b = Benchmark(
+    run_reps(
         ps.store.init_store,
         cmd="local",
         name="local",
         **ctx.obj
     )
-    b.run()
 
 
 @cli.command()
@@ -190,14 +222,13 @@ def local(ctx):
 @click.argument("store_dir")
 def file(ctx, store_dir):
 
-    b = Benchmark(
+    run_reps(
         ps.store.init_store,
         cmd="file",
         name="file",
         store_dir=store_dir,
         **ctx.obj
     )
-    b.run()
 
 
 @cli.command()
@@ -205,16 +236,14 @@ def file(ctx, store_dir):
 @click.argument("endpoint_json")
 def globus(ctx, endpoint_json):
     endpoints = ps.store.globus.GlobusEndpoints.from_json(endpoint_json)
-    print(endpoints)
 
-    b = Benchmark(
+    run_reps(
         ps.store.init_store,
         cmd="globus",
         name="globus",
         endpoints=endpoints,
         **ctx.obj
     )
-    b.run()
 
 
 if __name__ == "__main__":
