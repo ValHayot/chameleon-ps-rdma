@@ -86,6 +86,11 @@ rdma_get(PyObject *self, PyObject *args)
 
     margo_bulk_free(local_bulk);
 
+    if (d[0] == NULL)
+    {
+        d[0] = "";
+    }
+
     PyObject *val = PyBytes_FromString(d[0]);
     //PyDict_SetItemString(data, key, val);
     return val;
