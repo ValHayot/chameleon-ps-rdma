@@ -44,4 +44,4 @@ scl enable devtoolset-11 bash
 
 # install keydb
 wget https://download.keydb.dev/pkg/open_source/rpm/centos7/x86_64/keydb-latest-1.el7.x86_64.rpm
-sudo yum install ./keydb-latest-1.el7.x86_64.rpm
+sudo yum install -y ./keydb-latest-1.el7.x86_64.rpm
