@@ -3,6 +3,7 @@
 # source this file to setup environment for mochi-margo usage
 # need to update to move relevant commands to ~/.bashrc
 
+MOCHIENV="~/.mochi_setup.sh"
 
 . $PWD/spack/share/spack/setup-env.sh
 spack compiler find
@@ -21,6 +22,6 @@ spack load redis
 spack load hiredis
 
 pkg-config --libs margo
-pkg-config --libs hiredis" >> ~/.bashrc
+pkg-config --libs hiredis" >> ${MOCHIENV}
 
-source ~/.bashrc
+source ${MOCHIENV}
