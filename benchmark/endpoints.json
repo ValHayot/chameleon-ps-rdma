@@ -1,10 +1,10 @@
 {
-	"13536bea-db97-11ec-990a-3b4cfda38030" : {
+	"acea69b4-dde7-11ec-9bd1-2d2219dcc1fa" : {
 							"endpoint_path" : "/~/store",
 							"local_path" : "~/store",
                             "host_regex" : "rdma-1.novalocal"
     },
-	"faf6a792-db96-11ec-990a-3b4cfda38030" : {
+	"0ee97036-dde0-11ec-990d-3b4cfda38030" : {
 							"endpoint_path" : "/~/store",
 							"local_path" : "~/store",
                             "host_regex" : "rdma-2.novalocal"

@@ -237,11 +237,13 @@ def file(ctx, store_dir):
 def globus(ctx, endpoint_json):
     endpoints = ps.store.globus.GlobusEndpoints.from_json(endpoint_json)
 
+    # hardcoding timeout for now
     run_reps(
         ps.store.init_store,
         cmd="globus",
         name="globus",
         endpoints=endpoints,
+        timeout=3600,
         **ctx.obj
     )
 
