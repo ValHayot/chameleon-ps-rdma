@@ -29,13 +29,18 @@ DECLARE_MARGO_RPC_HANDLER(get)
 
 int main(int argc, char** argv)
 {
-    signal(SIGINT, intHandler);
-    int redis_port;
+    char* rport = argv[1];
+    char* mochi_host = argv[2];
+    char* mochi_port = argv[3];
 
-    if (argv[1] != NULL)
-    {
-        redis_port = atoi(argv[1]);
-    }
+    char mochi_addr[1024] = "tcp://";
+
+    strcat(mochi_addr, mochi_host);
+    strcat(mochi_addr, ":");
+    strcat(mochi_addr, mochi_port);
+   
+    signal(SIGINT, intHandler);
+    int redis_port = atoi(rport);
 
     // create redis context
     c = redisConnect("127.0.0.1", redis_port);
@@ -50,7 +55,7 @@ int main(int argc, char** argv)
     }
 
     // initialize margo instance
-    margo_instance_id mid = margo_init("tcp", MARGO_SERVER_MODE, 0, 0);
+    margo_instance_id mid = margo_init(mochi_addr, MARGO_SERVER_MODE, 0, 0);
     assert(mid);
     margo_set_log_level(mid, MARGO_LOG_INFO);
 
