@@ -3,10 +3,9 @@ from __future__ import annotations
 
 import logging
 import time
-import struct # need to handle this in rdma_transfer.c instead
+import struct  # need to handle this in rdma_transfer.c instead
 from typing import Any
 
-from rdma_interface import RDMA
 
 import proxystore as ps
 from proxystore.store.remote import RemoteFactory
@@ -62,6 +61,9 @@ class RDMAStore(RemoteStore):
         name: str,
         *,
         addr: str,
+        store: dict,
+        provider: int = 42,
+        max_transfer: int = (514*1024**2) // 4,
         **kwargs: Any,
     ) -> None:
         """Init RDMAStore.
@@ -73,7 +75,9 @@ class RDMAStore(RemoteStore):
                 :class:`RemoteStore <proxystore.store.remote.RemoteStore>`.
         """
         self.addr = addr
-        self.rdma  = RDMA(self.addr)
+        self.provider = provider
+        self.max_transfer = max_transfer
+        self.store = store
         super().__init__(name, **kwargs)
 
     def _kwargs(
@@ -88,7 +92,7 @@ class RDMAStore(RemoteStore):
         """
         if kwargs is None:
             kwargs = {}
-        kwargs.update({'addr': self.addr})
+        kwargs.update({"addr": self.addr, "store": self.store, "max_transfer": self.max_transfer, "provider": self.provider })
         return super()._kwargs(kwargs)
 
     def evict(self, key: str) -> None:
@@ -98,11 +102,10 @@ class RDMAStore(RemoteStore):
             key (str): key corresponding to object in store to evict.
         """
 
-        #TODO: implement in rdma transfer
+        # TODO: implement in rdma transfer
         self._cache.evict(key)
         logger.debug(
-            f"EVICT key='{key}' FROM {self.__class__.__name__}"
-            f"(name='{self.name}')",
+            f"EVICT key='{key}' FROM {self.__class__.__name__}" f"(name='{self.name}')",
         )
 
     def exists(self, key: str) -> bool:
@@ -114,7 +117,7 @@ class RDMAStore(RemoteStore):
         Returns:
             `bool`
         """
-        #TODO: implement in rdma transfer
+        # TODO: implement in rdma transfer
         return False
 
     def get_bytes(self, key: str) -> bytes | None:
@@ -126,7 +129,16 @@ class RDMAStore(RemoteStore):
         Returns:
             serialized object or `None` if it does not exist.
         """
-        return self.rdma.get(key)
+        with Engine('tcp', mode=pymargo.client) as engine:
+            rpc_id = engine.register("get")
+            buff = np.array([" " * self.max_transfer], dtype=bytes)  # equivalent to malloc
+            blk = engine.create_bulk(buff, bulk.read_write)
+            s = blk.to_base64()
+            call_rpc_on(engine, rpc_id, self.addr, self.provider, s, key, self.max_transfer)
+            print(buff[0].strip())
+        if key not in self.store:
+            return None
+        return self.store[key] #buff[0].strip()
 
     def get_timestamp(self, key: str) -> float:
         """Get timestamp of most recent object version in the store.
@@ -142,12 +154,19 @@ class RDMAStore(RemoteStore):
             KeyError:
                 if `key` does not exist in store.
         """
-        value = self.rdma.get(key + '_timestamp')
+        with Engine('tcp', mode=pymargo.client) as engine:
+            rpc_id = engine.register("get")
+            buff = np.array([" " * self.max_transfer], dtype=str)  # equivalent to malloc
+            blk = engine.create_bulk(buff, bulk.read_write)
+            s = blk.to_base64()
+            call_rpc_on(engine, rpc_id, self.addr, self.provider, s, key + "_timestamp", self.max_transfer)
+            value = buff[0:10].strip()
 
-        if value is None:
-            raise KeyError(f"Key='{key}' does not exist on the remote server")
+            if value is None:
+                raise KeyError(f"Key='{key}' does not exist on the remote server")
 
-        return value.decode() #struct.unpack("<d", value)
+        print("val", value)
+        return self.store[key + "_timestamp"] #time.time() #value.decode("utf-8")  # struct.unpack("<d", value)
 
     def proxy(  # type: ignore[override]
         self,
@@ -178,6 +197,7 @@ class RDMAStore(RemoteStore):
             ValueError:
                 if `key` and `obj` are both `None`.
         """
+        print("test")
         return super().proxy(obj, key=key, factory=factory, **kwargs)
 
     def set_bytes(self, key: str, data: bytes) -> None:
@@ -188,7 +208,26 @@ class RDMAStore(RemoteStore):
             data (bytes): serialized object.
         """
         if not isinstance(data, bytes):
-            raise TypeError(f'data must be of type bytes. Found {type(data)}')
+            raise TypeError(f"data must be of type bytes. Found {type(data)}")
         # We store the creation time for the key as a separate file.
-        self.rdma.set(key + '_timestamp', bytes(str(time.time()), "UTF-8")) #struct.pack('<d', time.time()))
-        self.rdma.set(key, data)
+        with Engine('tcp', mode=pymargo.client) as engine:
+            rpc_id = engine.register("set")
+            buff = np.array([str(time.time()).encode()], dtype=str)  # equivalent to malloc
+            blk = engine.create_bulk(buff, bulk.read_write)
+            print(buff[0])
+            s = blk.to_base64()
+            call_rpc_on(engine, rpc_id, self.addr, self.provider, s, key + "_timestamp", len(buff))
+            buff = np.array([data], dtype=bytes)  # equivalent to malloc
+            blk = engine.create_bulk(buff, bulk.read_write)
+            s = blk.to_base64()
+            call_rpc_on(engine, rpc_id, self.addr, self.provider, s, key, len(data))
+        self.store[key + "_timestamp"] = time.time()
+        self.store[key] = data
+
+
+def call_rpc_on(engine, rpc_id, addr_str, provider_id, array_str, key, size):
+    addr = engine.lookup(addr_str)
+    handle = engine.create_handle(addr, rpc_id)
+    data = {"key": key, "size": size, "buffer": array_str}  # , "buffer": array_str }
+    serialized = json.dumps(data)
+    return handle.forward(provider_id, serialized)
